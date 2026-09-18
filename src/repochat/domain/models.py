@@ -9,7 +9,7 @@ from sqlalchemy import DateTime, Enum as SqlEnum, Float, ForeignKey, Integer, St
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-EMBEDDING_DIMENSION = 384  # sentence-transformers/all-MiniLM-L6-v2
+EMBEDDING_DIMENSION = 768  # Alibaba-NLP/gte-modernbert-base
 
 
 class Base(DeclarativeBase):
@@ -180,10 +180,14 @@ class AnswerEvent(Base):
     answer_markdown: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(String, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
-    retrieval_trace_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("retrieval_trace.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     citations: Mapped[list["Citation"]] = relationship(back_populates="answer_event")
+    # RetrievalTrace points back at this row via answer_event_id -- a single
+    # FK direction, not two (a two-way FK pair is an unresolvable DROP-order
+    # cycle in Postgres/SQLAlchemy unless the constraints are explicitly
+    # named; simplest is to just not create the cycle).
+    retrieval_trace: Mapped["RetrievalTrace | None"] = relationship(back_populates="answer_event", uselist=False)
 
 
 class RetrievalTrace(Base):
@@ -204,6 +208,8 @@ class RetrievalTrace(Base):
     final_chunks: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
     context_chunks: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    answer_event: Mapped["AnswerEvent"] = relationship(back_populates="retrieval_trace")
 
 
 class Citation(Base):

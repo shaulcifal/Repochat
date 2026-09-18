@@ -104,7 +104,6 @@ def answer_question(
     )
     session.add(trace)
     session.flush()
-    answer_event.retrieval_trace_id = trace.id
 
     label_to_block = {block.label: block for block in blocks}
     citations = []

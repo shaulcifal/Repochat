@@ -24,6 +24,17 @@ dev = [
     "testcontainers>=4.0",
 ]
 
+# `sentence-transformers` pulls in plain CPU-only torch as a transitive
+# dependency. If this machine has a working CUDA GPU (check with
+# `nvidia-smi`), reinstall torch for it AFTER `pip install -e .`, matching
+# the CUDA branch your driver actually supports:
+#   pip install --force-reinstall torch==2.14.0+cu126 \
+#       --index-url https://download.pytorch.org/whl/cu126
+# cu126 (CUDA 12.6) specifically -- not cu130/cu132 -- because CUDA 13
+# dropped support for Pascal-generation GPUs (compute capability < 7.5,
+# e.g. the GTX 10-series) entirely. sentence-transformers picks up a CUDA
+# torch automatically once it's installed; no other code changes needed.
+
 [project.scripts]
 repochat = "cli.main:app"
 
