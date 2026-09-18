@@ -36,3 +36,19 @@ def test_strips_invalid_full_width_citation():
     assert confirmed == []
     assert "【S9】" not in cleaned
     assert "S9" in cleaned  # still flagged in the trailing note
+
+
+def test_recognizes_citation_with_trailing_span_annotation():
+    # Observed live from gpt-oss: 【S2†L60-L78】 instead of a bare [S2].
+    text = "Uses the KV cache 【S2†L60-L78】 for decoding."
+    cleaned, confirmed = validate_citations(text, valid_labels={"S1", "S2"})
+    assert confirmed == ["S2"]
+    assert cleaned == text
+
+
+def test_recognizes_citation_wrapped_in_markdown_emphasis():
+    # Observed live from gpt-oss: [`S6`] instead of a bare [S6].
+    text = "Handled per example [`S6`]."
+    cleaned, confirmed = validate_citations(text, valid_labels={"S6"})
+    assert confirmed == ["S6"]
+    assert cleaned == text

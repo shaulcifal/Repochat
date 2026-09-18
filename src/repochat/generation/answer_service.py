@@ -12,7 +12,7 @@ from repochat.generation.citation_validator import validate_citations
 from repochat.generation.context_pack import SYSTEM_PROMPT, ContextBlock, build_context_blocks, build_user_prompt
 from repochat.generation.llm_provider import LLMProvider
 from repochat.indexing.embedding_provider import EmbeddingProvider
-from repochat.retrieval.hybrid import hybrid_search
+from repochat.retrieval.candidate_pipeline import retrieve_candidates
 
 
 class AnswerResult:
@@ -52,7 +52,7 @@ def answer_question(
     start = time.monotonic()
 
     [query_vector] = embedding_provider.embed([question])
-    chunks = hybrid_search(
+    chunks = retrieve_candidates(
         session,
         revision.id,
         query=question,

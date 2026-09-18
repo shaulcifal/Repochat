@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Enum as SqlEnum, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -152,6 +152,21 @@ class Chunk(Base):
 
     revision: Mapped["Revision"] = relationship()
     file: Mapped["File"] = relationship()
+
+
+class GraphEdge(Base):
+    """A file-to-file relationship discovered from imports. A retrieval aid
+    and candidate-generation signal, not proof of what actually executes."""
+
+    __tablename__ = "graph_edge"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    revision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("revision.id"), nullable=False)
+    source_file_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("file.id"), nullable=False)
+    target_file_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("file.id"), nullable=False)
+    edge_type: Mapped[str] = mapped_column(String, nullable=False)  # "imports"
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class AnswerEvent(Base):

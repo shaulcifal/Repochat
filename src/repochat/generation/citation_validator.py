@@ -9,11 +9,13 @@ built here yet.
 
 import re
 
-# Models sometimes render brackets as full-width (CJK) characters instead of
-# the plain ASCII we asked for in the prompt -- matched live against gpt-oss
-# output as [S1] rendered as full-width. Accept both so a citation isn't
-# silently lost just because of bracket style.
-_CITATION_PATTERN = re.compile(r"[\[【［]S(\d+)[\]】］]")
+# Models don't reliably stick to a bare [S1]. Observed live from gpt-oss:
+# full-width brackets (【S1】), a trailing span annotation
+# (【S2†L60-L78】), and markdown emphasis inside the brackets
+# ([`S6`]). Tolerate all of it rather than silently losing a real citation
+# to formatting -- this regex is a stopgap; Phase 5's repair-then-abstain
+# loop is the real fix for a model that won't follow the format.
+_CITATION_PATTERN = re.compile(r"[\[【［][^A-Za-z0-9]*S(\d+)[^\[\]【】［］]*[\]】］]")
 
 
 def _sorted_labels(labels: set[str]) -> list[str]:
