@@ -52,3 +52,22 @@ def test_recognizes_citation_wrapped_in_markdown_emphasis():
     cleaned, confirmed = validate_citations(text, valid_labels={"S6"})
     assert confirmed == ["S6"]
     assert cleaned == text
+
+
+def test_recognizes_bare_bold_citation_with_no_brackets_at_all():
+    # Observed live from gpt-oss: **S2** with no brackets whatsoever.
+    text = "Creates an Engine **S2** to run generation."
+    cleaned, confirmed = validate_citations(text, valid_labels={"S2"})
+    assert confirmed == ["S2"]
+    assert cleaned == text
+
+
+def test_does_not_confuse_s1_with_s10_or_s12():
+    text = "See [S1], [S10], and [S12]."
+    cleaned, confirmed = validate_citations(text, valid_labels={"S1"})
+    assert confirmed == ["S1"]
+    body, _, note = cleaned.partition("\n\n_Note:")
+    assert "[S1]" in body
+    assert "[S10]" not in body  # bracket form removed from the body...
+    assert "[S12]" not in body
+    assert "S10" in note  # ...but still named in the trailing note

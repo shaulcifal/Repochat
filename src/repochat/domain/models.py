@@ -180,9 +180,30 @@ class AnswerEvent(Base):
     answer_markdown: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(String, nullable=False)
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    retrieval_trace_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("retrieval_trace.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     citations: Mapped[list["Citation"]] = relationship(back_populates="answer_event")
+
+
+class RetrievalTrace(Base):
+    """One row per answer, holding every intermediate retrieval stage's
+    output -- what makes a bad answer debuggable stage-by-stage instead of
+    only having the final answer to go on (design doc Fix 6)."""
+
+    __tablename__ = "retrieval_trace"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    answer_event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("answer_event.id"), nullable=False)
+    scope: Mapped[str | None] = mapped_column(String, nullable=True)  # scope classifier not built yet (Phase 6)
+    lexical_results: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    dense_results: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    rrf_results: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    graph_expansion: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    reranker_results: Mapped[str] = mapped_column(Text, nullable=False)  # JSON, raw + normalized
+    final_chunks: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    context_chunks: Mapped[str] = mapped_column(Text, nullable=False)  # JSON
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class Citation(Base):

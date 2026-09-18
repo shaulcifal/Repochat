@@ -23,6 +23,7 @@ from repochat.generation.llm_provider import GroqLLMProvider  # noqa: E402
 from repochat.indexing.embedding_provider import SentenceTransformerEmbeddingProvider  # noqa: E402
 from repochat.ingestion.repository_manager import IndexingError, index_repository  # noqa: E402
 from repochat.retrieval.lexical_retriever import build_lexical_index  # noqa: E402
+from repochat.retrieval.reranker import CrossEncoderRerankerProvider  # noqa: E402
 from repochat.storage.db import ensure_schema, get_session  # noqa: E402
 
 app = typer.Typer(help="RepoChat - repository-aware RAG chatbot")
@@ -49,6 +50,11 @@ def _embedding_provider():
 
 def _llm_provider():
     return GroqLLMProvider(api_key=os.environ["GROQ_API_KEY"], model=os.environ["GROQ_ANSWER_MODEL"])
+
+
+def _reranker_provider():
+    console.print("[dim]Loading reranker model...[/dim]")
+    return CrossEncoderRerankerProvider(os.environ["RERANKER_MODEL"])
 
 
 @app.command()
@@ -188,6 +194,7 @@ def chat(repository_id: str):
         model_name = os.environ["GROQ_ANSWER_MODEL"]
         console.print("[dim]Building lexical index...[/dim]")
         lexical_index = build_lexical_index(session, revision.id)
+        reranker = _reranker_provider()
 
         console.print(
             f"RepoChat [{repository.public_id} @ {revision.commit_sha[:7]}] Type /exit to leave.\n"
@@ -205,6 +212,7 @@ def chat(repository_id: str):
                 llm_provider=llm_provider,
                 llm_model_name=model_name,
                 lexical_index=lexical_index,
+                reranker=reranker,
             )
             _print_answer(session, repository, revision, result)
     finally:

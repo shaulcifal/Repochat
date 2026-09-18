@@ -1,18 +1,20 @@
 """Orchestrates one question: retrieve -> build context -> generate ->
-validate citations -> persist. Conversation memory / follow-up resolution
-is a Phase 6 concern; each call here is independent."""
+repair-then-abstain citation validation -> persist. Conversation memory /
+follow-up resolution is a Phase 6 concern; each call here is independent."""
 
+import json
 import time
 import uuid
 
 from sqlalchemy.orm import Session
 
-from repochat.domain.models import AnswerEvent, Citation, Revision
-from repochat.generation.citation_validator import validate_citations
+from repochat.domain.models import AnswerEvent, Citation, Revision, RetrievalTrace
+from repochat.generation.citation_repair import repair_then_abstain
 from repochat.generation.context_pack import SYSTEM_PROMPT, ContextBlock, build_context_blocks, build_user_prompt
 from repochat.generation.llm_provider import LLMProvider
 from repochat.indexing.embedding_provider import EmbeddingProvider
-from repochat.retrieval.candidate_pipeline import retrieve_candidates
+from repochat.retrieval.reranker import RerankerProvider
+from repochat.retrieval.traced_pipeline import run_retrieval
 
 
 class AnswerResult:
@@ -47,19 +49,22 @@ def answer_question(
     llm_provider: LLMProvider,
     llm_model_name: str,
     lexical_index,
+    reranker: RerankerProvider,
     top_k: int = 8,
 ) -> AnswerResult:
     start = time.monotonic()
 
     [query_vector] = embedding_provider.embed([question])
-    chunks = retrieve_candidates(
+    retrieval = run_retrieval(
         session,
         revision.id,
         query=question,
         query_vector=query_vector,
         lexical_index=lexical_index,
+        reranker=reranker,
         top_k=top_k,
     )
+    chunks = retrieval.chunks
 
     if not chunks:
         return _persist_no_evidence_answer(
@@ -71,7 +76,9 @@ def answer_question(
     raw_answer = llm_provider.generate(SYSTEM_PROMPT, user_prompt)
 
     valid_labels = {block.label for block in blocks}
-    cleaned_answer, cited_labels = validate_citations(raw_answer, valid_labels)
+    cleaned_answer, cited_labels = repair_then_abstain(
+        llm_provider, SYSTEM_PROMPT, user_prompt, raw_answer, valid_labels
+    )
     latency_ms = int((time.monotonic() - start) * 1000)
 
     answer_event = AnswerEvent(
@@ -84,6 +91,20 @@ def answer_question(
     )
     session.add(answer_event)
     session.flush()
+
+    trace = RetrievalTrace(
+        answer_event_id=answer_event.id,
+        lexical_results=json.dumps(retrieval.trace["lexical_results"]),
+        dense_results=json.dumps(retrieval.trace["dense_results"]),
+        rrf_results=json.dumps(retrieval.trace["rrf_results"]),
+        graph_expansion=json.dumps(retrieval.trace["graph_expansion"]),
+        reranker_results=json.dumps(retrieval.trace["reranker_results"]),
+        final_chunks=json.dumps(retrieval.trace["final_chunks"]),
+        context_chunks=json.dumps(retrieval.trace["context_chunks"]),
+    )
+    session.add(trace)
+    session.flush()
+    answer_event.retrieval_trace_id = trace.id
 
     label_to_block = {block.label: block for block in blocks}
     citations = []
