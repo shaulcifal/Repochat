@@ -4,9 +4,12 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, Integer, String, UniqueConstraint
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+EMBEDDING_DIMENSION = 384  # sentence-transformers/all-MiniLM-L6-v2
 
 
 class Base(DeclarativeBase):
@@ -19,6 +22,10 @@ def _new_uuid() -> uuid.UUID:
 
 def _new_public_id() -> str:
     return f"repo_{uuid.uuid4().hex[:8]}"
+
+
+def _new_answer_event_public_id() -> str:
+    return f"ae_{uuid.uuid4().hex[:8]}"
 
 
 def _utcnow() -> datetime:
@@ -112,3 +119,67 @@ class FileDiagnostic(Base):
 
     file: Mapped["File | None"] = relationship(back_populates="diagnostics")
     revision: Mapped["Revision"] = relationship(back_populates="diagnostics")
+
+
+class Chunk(Base):
+    """A single retrieval unit: one symbol (module/class/function/method)."""
+
+    __tablename__ = "chunk"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    revision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("revision.id"), nullable=False)
+    file_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("file.id"), nullable=False)
+
+    language: Mapped[str] = mapped_column(String, nullable=False)
+    symbol_kind: Mapped[str] = mapped_column(String, nullable=False)  # module|class|function|method
+    qualified_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    parent_symbol: Mapped[str | None] = mapped_column(String, nullable=True)
+    start_line: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_line: Mapped[int] = mapped_column(Integer, nullable=False)
+    signature: Mapped[str | None] = mapped_column(String, nullable=True)
+    docstring: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    raw_source: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding_text: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    parse_status: Mapped[str] = mapped_column(String, nullable=False)  # ok|partial
+
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSION), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    revision: Mapped["Revision"] = relationship()
+    file: Mapped["File"] = relationship()
+
+
+class AnswerEvent(Base):
+    __tablename__ = "answer_event"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_new_uuid)
+    public_id: Mapped[str] = mapped_column(String, unique=True, default=_new_answer_event_public_id)
+    repository_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("repository.id"), nullable=False)
+    revision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("revision.id"), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer_markdown: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(String, nullable=False)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    citations: Mapped[list["Citation"]] = relationship(back_populates="answer_event")
+
+
+class Citation(Base):
+    """A durable, globally-addressable citation: '<answer_event_id>-S<label>'."""
+
+    __tablename__ = "citation"
+
+    citation_id: Mapped[str] = mapped_column(String, primary_key=True)
+    answer_event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("answer_event.id"), nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False)  # "S1", "S2", ...
+    chunk_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("chunk.id"), nullable=False)
+    revision_sha: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    answer_event: Mapped["AnswerEvent"] = relationship(back_populates="citations")
+    chunk: Mapped["Chunk"] = relationship()

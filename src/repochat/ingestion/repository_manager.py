@@ -22,6 +22,8 @@ from repochat.domain.models import (
     Revision,
     RevisionState,
 )
+from repochat.indexing.embedding_provider import EmbeddingProvider
+from repochat.indexing.pipeline import repo_slug_from_canonical_url, run_indexing
 from repochat.ingestion.clone import CloneError, shallow_clone
 from repochat.ingestion.file_policy import MAX_FILES_PER_REVISION, build_manifest
 from repochat.ingestion.url_validator import parse_github_url
@@ -53,7 +55,12 @@ def _get_or_create_repository(session: Session, canonical_url: str, default_bran
     return repository
 
 
-def index_repository(session: Session, url: str, ref: str | None = None) -> Revision:
+def index_repository(
+    session: Session,
+    url: str,
+    ref: str | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
+) -> Revision:
     parsed = parse_github_url(url)
     repository = _get_or_create_repository(session, parsed.canonical_url, ref or "HEAD")
 
@@ -126,7 +133,15 @@ def index_repository(session: Session, url: str, ref: str | None = None) -> Revi
             )
         )
 
-    # Parsing/chunking/embedding land in later phases; nothing to do yet.
+    if embedding_provider is not None:
+        run_indexing(
+            session,
+            revision,
+            repo_root=dest,
+            repo_slug=repo_slug_from_canonical_url(parsed.canonical_url),
+            embedding_provider=embedding_provider,
+        )
+
     revision.state = RevisionState.READY
     session.commit()
     return revision
