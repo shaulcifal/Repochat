@@ -23,8 +23,6 @@ from repochat.retrieval.scope_classifier import (
         ("Trace how a request reaches the database", Scope.REPOSITORY_FLOW),
         ("Walk me through the training pipeline", Scope.REPOSITORY_FLOW),
         ("Explain the data flow end to end", Scope.REPOSITORY_FLOW),
-        ("What about the optimizer?", Scope.FOLLOW_UP),
-        ("And why is it done that way?", Scope.FOLLOW_UP),
         ("How is authentication configured?", Scope.FEATURE),
         ("How does this project handle errors?", Scope.FEATURE),
     ],
@@ -33,9 +31,9 @@ def test_rule_based_classification(question, expected):
     assert RuleBasedScopeClassifier().classify(question) == expected
 
 
-def test_follow_up_beats_other_signals():
-    # Mentions a flow keyword but is clearly a follow-up reference.
-    assert RuleBasedScopeClassifier().classify("What about the pipeline?") == Scope.FOLLOW_UP
+def test_unclassifiable_question_falls_to_feature():
+    # No identifier, no flow keyword -> the middle, default setting.
+    assert RuleBasedScopeClassifier().classify("Is this project any good?") == Scope.FEATURE
 
 
 # --------------------------------------------------------------------------
@@ -50,8 +48,8 @@ def test_follow_up_beats_other_signals():
         ("  Symbol  ", Scope.SYMBOL),
         ("**repository_flow**", Scope.REPOSITORY_FLOW),
         ("Category: feature", Scope.FEATURE),
-        ("follow up", Scope.FOLLOW_UP),
-        ("`follow_up`", Scope.FOLLOW_UP),
+        ("`symbol`", Scope.SYMBOL),
+        ("repository flow", Scope.REPOSITORY_FLOW),
     ],
 )
 def test_parse_scope_is_forgiving_about_formatting(raw, expected):

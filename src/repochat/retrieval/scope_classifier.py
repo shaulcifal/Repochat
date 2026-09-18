@@ -23,18 +23,7 @@ _CLASSIFIER_SYSTEM_PROMPT = (
     "symbol - asks about one specific named function, class, method, or variable\n"
     "feature - asks how some capability or area of the codebase works\n"
     "repository_flow - asks how data or control moves across several files, or to "
-    "trace a path end to end\n"
-    "follow_up - refers back to a previous answer without naming its own subject, "
-    "e.g. 'what about the optimizer?' or 'why is it done that way?'"
-)
-
-# Referring back to something unnamed, rather than introducing a subject.
-_FOLLOW_UP_PATTERNS = (
-    r"^\s*(and|but|so)\b",
-    r"^\s*what about\b",
-    r"^\s*how about\b",
-    r"\bthat (one|part|function|file|class)\b",
-    r"^\s*(why|how|when|where) (is|was|does|did|do) it\b",
+    "trace a path end to end"
 )
 
 _FLOW_KEYWORDS = (
@@ -83,9 +72,6 @@ class RuleBasedScopeClassifier(ScopeClassifier):
     def classify(self, question: str) -> Scope:
         text = question.strip()
         lowered = text.lower()
-
-        if any(re.search(pattern, lowered) for pattern in _FOLLOW_UP_PATTERNS):
-            return Scope.FOLLOW_UP
 
         if any(keyword in lowered for keyword in _FLOW_KEYWORDS):
             return Scope.REPOSITORY_FLOW
