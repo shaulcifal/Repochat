@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: repochat
+      POSTGRES_PASSWORD: repochat
+      POSTGRES_DB: repochat
+    ports:
+      - "5432:5432"
+    volumes:
+      - repochat_pg_data:/var/lib/postgresql/data
+
+volumes:
+  repochat_pg_data:
