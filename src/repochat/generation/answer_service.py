@@ -14,14 +14,23 @@ from repochat.generation.context_pack import SYSTEM_PROMPT, ContextBlock, build_
 from repochat.generation.llm_provider import LLMProvider
 from repochat.indexing.embedding_provider import EmbeddingProvider
 from repochat.retrieval.reranker import RerankerProvider
+from repochat.retrieval.scope import Scope, policy_for
+from repochat.retrieval.scope_classifier import ScopeClassifier
 from repochat.retrieval.traced_pipeline import run_retrieval
 
 
 class AnswerResult:
-    def __init__(self, answer_markdown: str, blocks: list[ContextBlock], citations: list[Citation]):
+    def __init__(
+        self,
+        answer_markdown: str,
+        blocks: list[ContextBlock],
+        citations: list[Citation],
+        scope: Scope | None = None,
+    ):
         self.answer_markdown = answer_markdown
         self.blocks = blocks
         self.citations = citations
+        self.scope = scope
 
 
 def _persist_no_evidence_answer(session, *, repository_id, revision, question, model_name) -> AnswerResult:
@@ -50,9 +59,14 @@ def answer_question(
     llm_model_name: str,
     lexical_index,
     reranker: RerankerProvider,
-    top_k: int = 8,
+    scope_classifier: ScopeClassifier | None = None,
 ) -> AnswerResult:
     start = time.monotonic()
+
+    # Routing decides how wide to search -- it never answers the question and
+    # never picks which chunks are relevant.
+    scope = scope_classifier.classify(question) if scope_classifier else Scope.FEATURE
+    policy = policy_for(scope)
 
     [query_vector] = embedding_provider.embed([question])
     retrieval = run_retrieval(
@@ -62,7 +76,7 @@ def answer_question(
         query_vector=query_vector,
         lexical_index=lexical_index,
         reranker=reranker,
-        top_k=top_k,
+        policy=policy,
     )
     chunks = retrieval.chunks
 
@@ -94,6 +108,7 @@ def answer_question(
 
     trace = RetrievalTrace(
         answer_event_id=answer_event.id,
+        scope=retrieval.trace["scope"],
         lexical_results=json.dumps(retrieval.trace["lexical_results"]),
         dense_results=json.dumps(retrieval.trace["dense_results"]),
         rrf_results=json.dumps(retrieval.trace["rrf_results"]),
@@ -120,4 +135,4 @@ def answer_question(
         citations.append(citation)
 
     session.commit()
-    return AnswerResult(cleaned_answer, blocks, citations)
+    return AnswerResult(cleaned_answer, blocks, citations, scope=scope)

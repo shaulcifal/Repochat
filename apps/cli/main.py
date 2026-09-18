@@ -24,6 +24,7 @@ from repochat.indexing.embedding_provider import SentenceTransformerEmbeddingPro
 from repochat.ingestion.repository_manager import IndexingError, index_repository  # noqa: E402
 from repochat.retrieval.lexical_retriever import build_lexical_index  # noqa: E402
 from repochat.retrieval.reranker import CrossEncoderRerankerProvider  # noqa: E402
+from repochat.retrieval.scope_classifier import LLMScopeClassifier  # noqa: E402
 from repochat.storage.db import ensure_schema, get_session  # noqa: E402
 
 app = typer.Typer(help="RepoChat - repository-aware RAG chatbot")
@@ -55,6 +56,17 @@ def _llm_provider():
 def _reranker_provider():
     console.print("[dim]Loading reranker model...[/dim]")
     return CrossEncoderRerankerProvider(os.environ["RERANKER_MODEL"])
+
+
+def _scope_classifier():
+    # A smaller, cheaper model than the answer model -- routing shouldn't cost
+    # what answering costs. Falls back to deterministic rules on any failure.
+    routing_llm = GroqLLMProvider(
+        api_key=os.environ["GROQ_API_KEY"],
+        model=os.environ["GROQ_SCOPE_CLASSIFIER_MODEL"],
+        max_tokens=200,
+    )
+    return LLMScopeClassifier(routing_llm)
 
 
 @app.command()
@@ -160,6 +172,8 @@ def status(repository_id: str):
 
 
 def _print_answer(session, repository: Repository, revision: Revision, result) -> None:
+    if result.scope is not None:
+        console.print(f"[dim]scope: {result.scope.value}[/dim]")
     console.print(f"\n[bold]RepoChat >[/bold] {result.answer_markdown}\n")
     if not result.citations:
         return
@@ -195,6 +209,7 @@ def chat(repository_id: str):
         console.print("[dim]Building lexical index...[/dim]")
         lexical_index = build_lexical_index(session, revision.id)
         reranker = _reranker_provider()
+        scope_classifier = _scope_classifier()
 
         console.print(
             f"RepoChat [{repository.public_id} @ {revision.commit_sha[:7]}] Type /exit to leave.\n"
@@ -213,6 +228,7 @@ def chat(repository_id: str):
                 llm_model_name=model_name,
                 lexical_index=lexical_index,
                 reranker=reranker,
+                scope_classifier=scope_classifier,
             )
             _print_answer(session, repository, revision, result)
     finally:

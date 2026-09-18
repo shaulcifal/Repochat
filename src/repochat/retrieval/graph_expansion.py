@@ -21,7 +21,11 @@ def expand_via_imports(
     revision_id,
     seed_chunks: list[Chunk],
     query_vector: list[float],
+    max_expanded_files: int = MAX_EXPANDED_FILES,
 ) -> list[Chunk]:
+    if max_expanded_files <= 0:
+        return []
+
     seed_file_ids: list = []
     seen = set()
     for chunk in seed_chunks:
@@ -68,7 +72,7 @@ def expand_via_imports(
     )
     best_distance_by_file = {row.file_id: row.best_distance for row in session.execute(best_distance_stmt)}
     target_file_ids.sort(key=lambda file_id: best_distance_by_file.get(file_id, float("inf")))
-    target_file_ids = target_file_ids[:MAX_EXPANDED_FILES]
+    target_file_ids = target_file_ids[:max_expanded_files]
 
     added: list[Chunk] = []
     for file_id in target_file_ids:

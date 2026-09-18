@@ -13,10 +13,10 @@ from repochat.retrieval.file_scoring import score_and_diversify
 from repochat.retrieval.graph_expansion import expand_via_imports
 from repochat.retrieval.hybrid import reciprocal_rank_fusion
 from repochat.retrieval.reranker import RerankerProvider
+from repochat.retrieval.scope import RetrievalPolicy, Scope, policy_for
 from repochat.retrieval.score_fusion import combine_scores
 from repochat.retrieval.token_budget import fit_to_budget
 
-CANDIDATE_POOL_SIZE = 30
 GRAPH_EDGE_CONFIDENCE = 0.9  # matches indexing/pipeline.py's IMPORT_EDGE_CONFIDENCE
 
 
@@ -38,17 +38,22 @@ def run_retrieval(
     query_vector: list[float],
     lexical_index,
     reranker: RerankerProvider,
-    top_k: int = 8,
+    policy: RetrievalPolicy | None = None,
 ) -> RetrievalResult:
-    dense_chunks = search_dense(session, revision_id, query_vector, top_k=CANDIDATE_POOL_SIZE)
-    lexical_chunks = lexical_index.search(query, top_k=CANDIDATE_POOL_SIZE)
+    # No classifier available (or none wanted) -> the previous fixed behavior.
+    policy = policy or policy_for(Scope.FEATURE)
+
+    dense_chunks = search_dense(session, revision_id, query_vector, top_k=policy.candidate_pool_size)
+    lexical_chunks = lexical_index.search(query, top_k=policy.candidate_pool_size)
 
     fused_pairs = reciprocal_rank_fusion(dense_chunks, lexical_chunks)
     rrf_score_by_id = {chunk.id: score for chunk, score in fused_pairs}
     ranked_chunks = [chunk for chunk, _ in fused_pairs]
 
-    diversified = score_and_diversify(ranked_chunks, lexical_chunks)
-    expanded = expand_via_imports(session, revision_id, diversified, query_vector)
+    diversified = score_and_diversify(ranked_chunks, lexical_chunks, max_files=policy.max_files)
+    expanded = expand_via_imports(
+        session, revision_id, diversified, query_vector, max_expanded_files=policy.max_expanded_files
+    )
     seen_ids = {chunk.id for chunk in diversified}
     expanded_unique = [chunk for chunk in expanded if chunk.id not in seen_ids]
 
@@ -66,10 +71,11 @@ def run_retrieval(
     ]
     # Budget over a slightly larger pool than top_k so token limits, not just
     # chunk count, decide what gets trimmed.
-    budgeted = fit_to_budget(ranked_final[: top_k * 2])
-    final = budgeted[:top_k]
+    budgeted = fit_to_budget(ranked_final[: policy.top_k * 2])
+    final = budgeted[: policy.top_k]
 
     trace = {
+        "scope": policy.scope.value,
         "lexical_results": [_chunk_ref(c) for c in lexical_chunks],
         "dense_results": [_chunk_ref(c) for c in dense_chunks],
         "rrf_results": [{"chunk_id": str(c.id), "score": s} for c, s in fused_pairs],
