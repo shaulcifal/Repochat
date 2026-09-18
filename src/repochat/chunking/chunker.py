@@ -3,11 +3,40 @@ whole-module overview chunk. Embedding text follows the recipe in the design
 doc so identifier queries and behavioral queries can both match."""
 
 import hashlib
+import re
 from dataclasses import dataclass
 
-from repochat.parsers.python_ast import ParsedFile
+from repochat.parsers.base import ParsedFile
 
 MAX_MODULE_CHUNK_CHARS = 4_000
+
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_NON_WORD = re.compile(r"[^A-Za-z0-9]+")
+
+
+def _split_identifier_words(name: str) -> list[str]:
+    """"save_checkpoint" -> ["save", "checkpoint"]; "RustBPETokenizer" ->
+    ["rust", "bpe", "tokenizer"]. Lets an exact identifier match lexically
+    even split across snake_case/camelCase/path boundaries."""
+    words = []
+    for part in _NON_WORD.split(name):
+        if not part:
+            continue
+        words.extend(sub.lower() for sub in _CAMEL_BOUNDARY.split(part) if sub)
+    return words
+
+
+def _identifier_tags(path: str, qualified_name: str | None, decorators: list[str]) -> str:
+    tokens: set[str] = set()
+    for segment in path.split("/"):
+        tokens.update(_split_identifier_words(segment))
+    if qualified_name:
+        tokens.add(qualified_name.lower())
+        for part in qualified_name.split("."):
+            tokens.update(_split_identifier_words(part))
+    for decorator in decorators:
+        tokens.update(_split_identifier_words(decorator))
+    return " ".join(sorted(tokens))
 
 
 @dataclass
@@ -22,6 +51,7 @@ class ChunkDraft:
     docstring: str | None
     raw_source: str
     embedding_text: str
+    tags: str
     token_count: int
     content_hash: str
     parse_status: str
@@ -85,6 +115,7 @@ def _module_draft(parsed: ParsedFile, *, repo_slug: str, path: str, full_source:
         docstring=docstring,
         raw_source=full_source,
         embedding_text=embedding_text,
+        tags=_identifier_tags(path, None, []),
         token_count=_approx_token_count(embedding_text),
         content_hash=hashlib.sha256(full_source.encode()).hexdigest(),
         parse_status=parse_status,
@@ -129,6 +160,7 @@ def build_chunk_drafts(parsed: ParsedFile, *, repo_slug: str, path: str, full_so
                 docstring=symbol.docstring,
                 raw_source=symbol.source_text,
                 embedding_text=embedding_text,
+                tags=_identifier_tags(path, symbol.qualified_name, symbol.decorators),
                 token_count=_approx_token_count(embedding_text),
                 content_hash=hashlib.sha256(symbol.source_text.encode()).hexdigest(),
                 parse_status="ok",

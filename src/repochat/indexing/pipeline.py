@@ -88,6 +88,7 @@ def run_indexing(
                     end_line=draft.end_line,
                     signature=draft.signature,
                     docstring=draft.docstring,
+                    tags=draft.tags,
                     raw_source=draft.raw_source,
                     embedding_text=draft.embedding_text,
                     token_count=draft.token_count,

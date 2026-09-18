@@ -12,7 +12,7 @@ from repochat.generation.citation_validator import validate_citations
 from repochat.generation.context_pack import SYSTEM_PROMPT, ContextBlock, build_context_blocks, build_user_prompt
 from repochat.generation.llm_provider import LLMProvider
 from repochat.indexing.embedding_provider import EmbeddingProvider
-from repochat.retrieval.dense_retriever import search_dense
+from repochat.retrieval.hybrid import hybrid_search
 
 
 class AnswerResult:
@@ -46,12 +46,20 @@ def answer_question(
     embedding_provider: EmbeddingProvider,
     llm_provider: LLMProvider,
     llm_model_name: str,
+    lexical_index,
     top_k: int = 8,
 ) -> AnswerResult:
     start = time.monotonic()
 
     [query_vector] = embedding_provider.embed([question])
-    chunks = search_dense(session, revision.id, query_vector, top_k=top_k)
+    chunks = hybrid_search(
+        session,
+        revision.id,
+        query=question,
+        query_vector=query_vector,
+        lexical_index=lexical_index,
+        top_k=top_k,
+    )
 
     if not chunks:
         return _persist_no_evidence_answer(

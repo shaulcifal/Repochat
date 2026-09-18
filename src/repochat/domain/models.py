@@ -138,6 +138,7 @@ class Chunk(Base):
     end_line: Mapped[int] = mapped_column(Integer, nullable=False)
     signature: Mapped[str | None] = mapped_column(String, nullable=True)
     docstring: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[str] = mapped_column(Text, nullable=False, default="")  # space-joined identifier-enrichment tokens
 
     raw_source: Mapped[str] = mapped_column(Text, nullable=False)
     embedding_text: Mapped[str] = mapped_column(Text, nullable=False)
