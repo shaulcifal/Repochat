@@ -15,7 +15,14 @@ from repochat.domain.models import (
     RevisionState,
 )
 from repochat.indexing.embedding_provider import EmbeddingProvider
+from repochat.parsers.base import ParsedFile
+from repochat.parsers.javascript_treesitter import parse_javascript_source
 from repochat.parsers.python_ast import parse_python_source
+
+_PARSERS = {
+    "python": parse_python_source,
+    "javascript": parse_javascript_source,
+}
 
 
 def repo_slug_from_canonical_url(canonical_url: str) -> str:
@@ -34,7 +41,11 @@ def run_indexing(
 
     parseable_files = (
         session.query(File)
-        .filter(File.revision_id == revision.id, File.language == "python", File.status.in_(["code", "test"]))
+        .filter(
+            File.revision_id == revision.id,
+            File.language.in_(list(_PARSERS)),
+            File.status.in_(["code", "test"]),
+        )
         .all()
     )
 
@@ -42,7 +53,8 @@ def run_indexing(
 
     for file_row in parseable_files:
         full_source = (repo_root / file_row.path).read_text(encoding="utf-8", errors="replace")
-        parsed = parse_python_source(full_source)
+        parse_fn = _PARSERS[file_row.language]
+        parsed: ParsedFile = parse_fn(full_source)
 
         if parsed.parse_status == "partial":
             session.add(
