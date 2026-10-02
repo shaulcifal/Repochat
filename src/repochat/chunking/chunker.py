@@ -10,14 +10,21 @@ from repochat.parsers.base import ParsedFile
 
 MAX_MODULE_CHUNK_CHARS = 4_000
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+# Two zero-width boundaries, because one isn't enough:
+#   (?<=[a-z0-9])(?=[A-Z])      camelCase      -> camel | Case
+#   (?<=[A-Z])(?=[A-Z][a-z])    an acronym run -> BPE | Tokenizer
+# Without the second, every character inside an acronym is uppercase, so no
+# boundary fires and "RustBPETokenizer" stays glued as "bpetokenizer" -- which
+# BM25 will never match against a query for "tokenizer". That matters most in
+# exactly the identifiers where acronyms cluster: GPT, BPE, KV, MLP, FP8.
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _NON_WORD = re.compile(r"[^A-Za-z0-9]+")
 
 
 def _split_identifier_words(name: str) -> list[str]:
     """"save_checkpoint" -> ["save", "checkpoint"]; "RustBPETokenizer" ->
     ["rust", "bpe", "tokenizer"]. Lets an exact identifier match lexically
-    even split across snake_case/camelCase/path boundaries."""
+    even split across snake_case/camelCase/acronym/path boundaries."""
     words = []
     for part in _NON_WORD.split(name):
         if not part:
