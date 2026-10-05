@@ -137,65 +137,6 @@ cp .env.example .env            # then fill in GROQ_API_KEY
 
 Everything else runs locally and costs nothing: embeddings and reranking are local models, and Postgres is the container you just started. Only answer generation calls out to Groq's free tier.
 
-### GPU is optional but worth it
-
-The embedding and reranker models run on CPU by default. If you have a CUDA GPU, reinstall torch for it after `pip install -e .`:
-
-```bash
-pip install --force-reinstall torch==2.14.0+cu126 --index-url https://download.pytorch.org/whl/cu126
-```
-
-`sentence-transformers` picks it up automatically, no config needed. Indexing nanochat takes about **1m38s on a GTX 1050 Ti**; the same job on CPU ran past 50 minutes without finishing.
-
-Pick the CUDA build your card supports. The `cu126` above is deliberate — CUDA 13 dropped Pascal-generation GPUs (anything below compute capability 7.5), so a `cu130` wheel silently won't work on a GTX 10-series card even though the driver advertises CUDA 13.
-
-## Usage
-
-```bash
-repochat index https://github.com/karpathy/nanochat.git
-repochat repos
-repochat status repo_5a5635a5
-repochat chat repo_5a5635a5
-repochat sources ae_183e701c-S1
-```
-
-Indexing prints what it kept and what it skipped:
-
-```
-$ repochat index https://github.com/karpathy/nanochat.git
-
-Indexing https://github.com/karpathy/nanochat.git
-At commit 92d63d4e8bb4
-┌──────────┬───────┐
-│ Status   │ Count │
-├──────────┼───────┤
-│ code     │    30 │
-│ test     │     6 │
-│ docs     │     4 │
-│ config   │     1 │
-│ excluded │    12 │
-└──────────┴───────┘
-Indexed: 310 chunks
-Status: READY
-Repository ID: repo_5a5635a5
-```
-
-Nothing is dropped silently — `status` explains every exclusion after the fact:
-
-```
-$ repochat status repo_5a5635a5
-
-State: READY
-Commit: 92d63d4e8bb4df75c3b71618f31ddde2378b2bcd
-Files: code 30, test 6, docs 4, config 1, excluded 12
-Chunks: 310
-
-Diagnostics:
-  dev/nanochat.png - excluded (unsupported file type)
-  uv.lock - excluded (unsupported file type)
-  dev/scaling_analysis.ipynb - excluded (unsupported file type)
-```
-
 ### Questions get routed by shape
 
 A question about one function and a question about how data moves across the app need very different amounts of evidence. A small model labels each question first, and that label sets how wide the rest of the pipeline searches:
@@ -210,45 +151,4 @@ The difference is visible in the answers. *"What does save_checkpoint do?"* rout
 
 The router only decides how wide to search. It never answers the question and never picks which chunks are relevant — that narrow job is what makes it safe to run on a small, cheap model. If it fails or returns something unparseable, a rule-based classifier takes over.
 
-## What it doesn't do
 
-Worth knowing before you try it on your own code.
-
-**Top-level script code isn't chunked.** Only functions, classes and methods become chunks. A training script that does its real work in top-level statements has that logic missing from the index entirely. This showed up asking how `base_train.py` saves checkpoints: the answer was correct but unhelpful, because the orchestration lives outside any function. The model correctly said it lacked evidence rather than inventing an answer — grounding held, coverage didn't.
-
-**No conversation memory.** Each question is answered independently. "What about the optimizer?" gets reasonable retrieval but no idea what "the" refers to.
-
-**README and config files are catalogued but not chunked**, so they can't inform an answer.
-
-**TypeScript isn't supported.** Only `.py`, `.js`, `.jsx`, `.mjs`, `.cjs`. Worth knowing because plenty of repositories that look like JavaScript are actually TypeScript now.
-
-**The import graph only knows about imports.** If a class receives its dependency through the constructor rather than importing it, no edge exists and graph expansion can't follow that relationship. Imports also don't prove what executes at runtime — the graph is a retrieval aid, not a verifier.
-
-**No benchmark.** There are no recall@k numbers and no ablation table. Retrieval quality has been verified on specific queries, not measured. That's the most useful thing still missing, and the per-answer retrieval trace already stores exactly the per-stage data those metrics would need.
-
-**Re-indexing rebuilds everything.** Content hashes are stored so unchanged chunks could be skipped, but that logic isn't written yet.
-
-## Built with
-
-| | |
-| --- | --- |
-| Parsing | Python `ast`, Tree-sitter |
-| Embeddings | `gte-modernbert-base`, 768-dim, local |
-| Keyword search | `bm25s` |
-| Reranking | `ms-marco-MiniLM-L-6-v2` cross-encoder, local |
-| Storage and vector search | PostgreSQL 16 + pgvector |
-| Answer generation | Groq, `gpt-oss-120b` |
-| Query routing | Groq, `gpt-oss-20b` |
-| CLI | Typer + Rich |
-
-Embeddings run locally and generation is hosted, because the volume profiles are opposite: embedding is hundreds of calls per repository, where a free API tier would throttle and a paid one would cost real money, while answering is one call per question and benefits from a far bigger model than fits on a laptop.
-
-Every provider sits behind an interface — `EmbeddingProvider`, `LLMProvider`, `RerankerProvider`, `ScopeClassifier` — so swapping Groq for something else is a config change. The mock implementations are also why the test suite needs no network, no GPU and no database, and finishes in a few seconds.
-
-## Tests
-
-```bash
-pytest tests/unit -q      # 117 tests
-```
-
-They cover URL validation, file classification, both parsers, chunking and identifier splitting, rank fusion, file scoring, import resolution, score normalization, token budgeting, citation validation and repair, and scope classification.
